@@ -78,7 +78,7 @@ mostrar_menu(){
 			7)
 				echo "saliendo..."
 				if [ -d "$BASE" ]; then
-
+					killall consolidar.sh
 					rm -rf "$BASE"
 					echo "Entorno borrado
 				;;
