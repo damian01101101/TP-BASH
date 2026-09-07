@@ -2,20 +2,20 @@
 
 BASE="$HOME/EPNro1"
 BORRAR_ENTORNO=false
+PID_CONSOLIDAR=""
 
-# Procesar parámetros
+# Verificar parámetro -d
 for arg in "$@"; do
-    if [ "$arg" == "-d" ]; then
+    if [ "$arg" = "-d" ]; then
         BORRAR_ENTORNO=true
-    else
-        FILENAME="$arg"
     fi
 done
 
-# Verificar que se haya pasado un archivo
+# Verificar que FILENAME esté definida
 if [ -z "$FILENAME" ]; then
-    echo "Error: debe pasar el nombre del archivo como parámetro"
-    echo "Uso: ./menu.sh <nombre_archivo> [-d]"
+    echo "Error: la variable de ambiente FILENAME no está definida."
+    echo "Ejemplo:"
+    echo "export FILENAME=alumnos"
     exit 1
 fi
 
@@ -27,26 +27,39 @@ mostrar_menu() {
     while [ "$opcion" -ne 7 ]; do
 
         echo
-        echo "Elige una opción"
-        echo "opción 1) crear entorno"
-        echo "opción 2) correr proceso"
-        echo "opción 3) mostrar por pantalla el listado de alumnos ordenados por número de padrón"
-        echo "opción 4) mostrar por pantalla las 10 notas más altas"
-        echo "opción 5) buscar alumno por padrón"
-        echo "opción 6) visualizar log"
-        echo "opción 7) salir"
+        echo "=============================================="
+        echo "              MENÚ PRINCIPAL"
+        echo "=============================================="
+        echo "Opción 1) Crear entorno"
+        echo "Opción 2) Correr proceso"
+        echo "Opción 3) Mostrar alumnos ordenados por padrón"
+        echo "Opción 4) Mostrar las 10 notas más altas"
+        echo "Opción 5) Buscar alumno por padrón"
+        echo "Opción 6) Visualizar log"
+        echo "Opción 7) Salir"
+        echo "=============================================="
+        echo -n "Ingrese una opción: "
 
         read -r opcion
 
         case "$opcion" in
 
             1)
+                echo
                 echo "Creando entorno..."
 
                 if [ -d "$BASE" ]; then
                     echo "El entorno ya existe en $BASE"
                 else
-                    mkdir -p "$BASE/entrada" "$BASE/salida" "$BASE/procesado"
+                    mkdir -p "$BASE/entrada"
+                    mkdir -p "$BASE/salida"
+                    mkdir -p "$BASE/procesado"
+
+                    # Crear archivo de salida vacío
+                    touch "$BASE/salida/$FILENAME.txt"
+
+                    # Crear archivo de log
+                    touch "$BASE/procesado.log"
 
                     # Crear consolidar.sh
                     cat > "$BASE/consolidar.sh" << 'EOF'
@@ -54,109 +67,162 @@ mostrar_menu() {
 
 BASE="$HOME/EPNro1"
 
-for archivo in "$BASE"/entrada/*.txt; do
+while true; do
 
-    [ -e "$archivo" ] || continue
+    for archivo in "$BASE"/entrada/*.txt; do
 
-    cat "$archivo" >> "$BASE/salida/filename.txt"
+        # Si no hay archivos .txt, continuar
+        [ -e "$archivo" ] || continue
 
-    FECHA=$(date '+%d/%m/%Y %H:%M:%S')
+        # Agregar el contenido al archivo de salida
+        cat "$archivo" >> "$BASE/salida/$FILENAME.txt"
 
-    echo "$FECHA - Procesado archivo $archivo" >> "$BASE/procesado.log"
+        # Obtener fecha y hora
+        FECHA=$(date '+%d/%m/%Y %H:%M:%S')
 
-    mv "$archivo" "$BASE/procesado/"
+        # Registrar el archivo procesado
+        echo "$FECHA - Procesado archivo $(basename "$archivo")" >> "$BASE/procesado.log"
+
+        # Mover archivo a procesado
+        mv "$archivo" "$BASE/procesado/"
+
+    done
+
+    # Revisar la carpeta entrada periódicamente
+    sleep 2
 
 done
 EOF
 
                     chmod +x "$BASE/consolidar.sh"
 
-                    if [ $? -eq 0 ]; then
-                        echo "Entorno creado correctamente"
-                    else
-                        echo "Error al crear entorno"
-                    fi
+                    echo "Entorno creado correctamente."
+                    echo "Directorio: $BASE"
                 fi
                 ;;
 
             2)
+                echo
+
                 if [ ! -d "$BASE" ]; then
-                    echo "Error: primero debe crear el entorno"
+                    echo "Error: primero debe crear el entorno."
                 else
-                    echo "Corriendo proceso..."
-
-                    # Copiar el archivo indicado al directorio de entrada
-                    if [ -f "$FILENAME" ]; then
-                        cp "$FILENAME" "$BASE/entrada/"
-                    elif [ -f "$BASE/entrada/$FILENAME" ]; then
-                        echo "El archivo ya se encuentra en la entrada"
+                    # Verificar si ya existe un proceso consolidar.sh
+                    if pgrep -f "$BASE/consolidar.sh" > /dev/null; then
+                        echo "El proceso consolidar.sh ya está ejecutándose."
                     else
-                        echo "Error: no se encuentra el archivo $FILENAME"
-                        break
+                        echo "Iniciando proceso..."
+
+                        FILENAME="$FILENAME" "$BASE/consolidar.sh" &
+                        PID_CONSOLIDAR=$!
+
+                        echo "Proceso iniciado en background."
+                        echo "PID: $PID_CONSOLIDAR"
                     fi
-
-                    # Ejecutar consolidar.sh
-                    "$BASE/consolidar.sh" &
-
-                    echo "Proceso iniciado"
                 fi
                 ;;
 
             3)
-                if [ -f "$BASE/salida/filename.txt" ]; then
-                    sort -n -k 1 "$BASE/salida/filename.txt"
+                echo
+
+                ARCHIVO_SALIDA="$BASE/salida/$FILENAME.txt"
+
+                if [ -f "$ARCHIVO_SALIDA" ]; then
+                    echo "Listado de alumnos ordenados por número de padrón:"
+                    echo
+
+                    sort -n -k 1 "$ARCHIVO_SALIDA"
                 else
-                    echo "Archivo no encontrado"
+                    echo "Error: no existe el archivo $ARCHIVO_SALIDA"
                 fi
                 ;;
 
             4)
-                if [ -f "$BASE/salida/filename.txt" ]; then
-                    echo "Top 10 notas más altas"
+                echo
 
-                    sort -rn -k 2 "$BASE/salida/filename.txt" | head -n 10
+                ARCHIVO_SALIDA="$BASE/salida/$FILENAME.txt"
+
+                if [ -f "$ARCHIVO_SALIDA" ]; then
+                    echo "Las 10 notas más altas:"
+                    echo
+
+                    sort -k 4 -nr "$ARCHIVO_SALIDA" | head -n 10
                 else
-                    echo "Archivo no encontrado"
+                    echo "Error: no existe el archivo $ARCHIVO_SALIDA"
                 fi
                 ;;
 
             5)
-                echo "Ingrese número de padrón del alumno a consultar:"
-                read -r padron
+                echo
 
-                if [ -f "$BASE/salida/filename.txt" ]; then
-                    awk -F ',' -v padron="$padron" '$4 == padron' \
-                        "$BASE/salida/filename.txt"
+                ARCHIVO_SALIDA="$BASE/salida/$FILENAME.txt"
+
+                if [ -f "$ARCHIVO_SALIDA" ]; then
+
+                    echo -n "Ingrese el número de padrón: "
+                    read -r padron
+
+                    resultado=$(awk -v padron="$padron" '$1 == padron' "$ARCHIVO_SALIDA")
+
+                    if [ -n "$resultado" ]; then
+                        echo
+                        echo "Alumno encontrado:"
+                        echo "$resultado"
+                    else
+                        echo "No se encontró ningún alumno con ese padrón."
+                    fi
+
                 else
-                    echo "Archivo no encontrado"
+                    echo "Error: no existe el archivo $ARCHIVO_SALIDA"
                 fi
                 ;;
 
             6)
-                echo "Cargando registro..."
+                echo
 
                 if [ -f "$BASE/procesado.log" ]; then
+                    echo "Registro de archivos procesados:"
+                    echo
                     cat "$BASE/procesado.log"
                 else
-                    echo "No existe el archivo de log"
+                    echo "No existe el archivo de log."
                 fi
                 ;;
 
             7)
+                echo
                 echo "Saliendo..."
 
+                # Si se utilizó -d, borrar el entorno
                 if [ "$BORRAR_ENTORNO" = true ]; then
+
+                    echo "Se indicó el parámetro -d."
+
+                    # Matar proceso consolidar.sh
+                    PIDS=$(pgrep -f "$BASE/consolidar.sh")
+
+                    if [ -n "$PIDS" ]; then
+                        echo "Deteniendo proceso consolidar.sh..."
+
+                        for pid in $PIDS; do
+                            kill "$pid" 2>/dev/null
+                        done
+                    fi
+
+                    # Borrar entorno
                     if [ -d "$BASE" ]; then
                         rm -rf "$BASE"
-                        echo "Entorno borrado"
+                        echo "Entorno $BASE eliminado."
                     fi
+
                 fi
 
-                echo "Programa finalizado"
+                echo "Programa finalizado."
                 ;;
 
             *)
-                echo "Opción inválida"
+                echo
+                echo "Opción inválida."
                 ;;
 
         esac
